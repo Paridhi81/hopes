@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { projects, samples, excelTemplate } from '@/utils/data';
+import { projects, samples, excelTemplate, createSample } from '@/utils/data';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,12 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Upload, 
-  Download, 
-  Plus, 
-  FileSpreadsheet, 
-  CheckCircle, 
+import {
+  Upload,
+  Download,
+  Plus,
+  FileSpreadsheet,
+  CheckCircle,
   AlertCircle,
   Trash2
 } from 'lucide-react';
@@ -56,7 +56,7 @@ export default function DataEntryPage() {
       excelTemplate.headers.join(','),
       ...excelTemplate.sampleData.map(row => row.join(','))
     ].join('\n');
-    
+
     // Create and trigger download
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -74,7 +74,7 @@ export default function DataEntryPage() {
     if (!file) return;
 
     setIsUploading(true);
-    
+
     // Simulate file processing
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -82,7 +82,7 @@ export default function DataEntryPage() {
         const content = e.target?.result as string;
         const lines = content.split('\n');
         const headers = lines[0].split(',');
-        
+
         if (headers.length !== excelTemplate.headers.length) {
           throw new Error('Invalid file format. Please use the provided template.');
         }
@@ -106,7 +106,7 @@ export default function DataEntryPage() {
             });
           }
         }
-        
+
         setUploadedData(data);
       } catch (error) {
         alert('Error processing file. Please check the format and try again.');
@@ -114,49 +114,70 @@ export default function DataEntryPage() {
         setIsUploading(false);
       }
     };
-    
+
     reader.readAsText(file);
   };
 
-  const handleAddSample = () => {
-    // Validate form
+  const handleAddSample = async () => {
     const requiredFields = ['sampleId', 'projectId', 'district', 'city', 'latitude', 'longitude', 'metal', 'Si', 'Ii', 'Mi'];
     const missingFields = requiredFields.filter(field => !newSample[field as keyof SampleData]);
-    
+
     if (missingFields.length > 0) {
       alert(`Please fill in all required fields: ${missingFields.join(', ')}`);
       return;
     }
 
-    // Add to uploaded data
-    setUploadedData(prev => [...prev, { ...newSample }]);
-    
-    // Reset form
-    setNewSample({
-      sampleId: '',
-      projectId: '',
-      district: '',
-      city: '',
-      latitude: '',
-      longitude: '',
-      metal: '',
-      Si: '',
-      Ii: '',
-      Mi: '',
-      date: new Date().toISOString().split('T')[0]
-    });
+    try {
+      await createSample({
+        ...newSample,
+        Si: parseFloat(newSample.Si),
+        Ii: parseFloat(newSample.Ii),
+        Mi: parseFloat(newSample.Mi),
+        latitude: parseFloat(newSample.latitude),
+        longitude: parseFloat(newSample.longitude),
+      });
+      alert('Sample added successfully!');
+      setNewSample({
+        sampleId: '',
+        projectId: '',
+        district: '',
+        city: '',
+        latitude: '',
+        longitude: '',
+        metal: '',
+        Si: '',
+        Ii: '',
+        Mi: '',
+        date: new Date().toISOString().split('T')[0]
+      });
+    } catch (error) {
+      alert('Error adding sample. Please try again.');
+    }
   };
 
-  const handleSaveData = () => {
+  const handleSaveUploadedData = async () => {
     if (uploadedData.length === 0) {
       alert('No data to save. Please add samples or upload a file.');
       return;
     }
 
-    // In real app, this would make an API call to save data
-    console.log('Saving data:', uploadedData);
-    alert(`Successfully saved ${uploadedData.length} sample(s) to the database!`);
-    setUploadedData([]);
+    try {
+      const samplesToInsert = uploadedData.map(sample => ({
+        ...sample,
+        Si: parseFloat(sample.Si),
+        Ii: parseFloat(sample.Ii),
+        Mi: parseFloat(sample.Mi),
+        latitude: parseFloat(sample.latitude),
+        longitude: parseFloat(sample.longitude)
+      }));
+
+      await Promise.all(samplesToInsert.map(s => createSample(s)));
+
+      alert(`Successfully saved ${uploadedData.length} sample(s) to the database!`);
+      setUploadedData([]);
+    } catch (error) {
+      alert('Error saving data. Please check the data and try again.');
+    }
   };
 
   const handleDeleteSample = (index: number) => {
@@ -165,17 +186,17 @@ export default function DataEntryPage() {
 
   const validateSample = (sample: SampleData) => {
     const errors = [];
-    
+
     // Check if project exists
     const projectExists = projects.some(p => p.id === sample.projectId);
     if (!projectExists) errors.push('Invalid project ID');
-    
+
     // Validate coordinates
     const lat = parseFloat(sample.latitude);
     const lng = parseFloat(sample.longitude);
     if (isNaN(lat) || lat < -90 || lat > 90) errors.push('Invalid latitude');
     if (isNaN(lng) || lng < -180 || lng > 180) errors.push('Invalid longitude');
-    
+
     // Validate numeric values
     const Si = parseFloat(sample.Si);
     const Ii = parseFloat(sample.Ii);
@@ -183,7 +204,7 @@ export default function DataEntryPage() {
     if (isNaN(Si) || Si < 0) errors.push('Invalid Si value');
     if (isNaN(Ii) || Ii <= 0) errors.push('Invalid Ii value');
     if (isNaN(Mi) || Mi <= 0) errors.push('Invalid Mi value');
-    
+
     return errors;
   };
 
@@ -227,11 +248,11 @@ export default function DataEntryPage() {
                 </Button>
               </label>
             </div>
-            
+
             <div className="flex justify-center">
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleDownloadTemplate}
                 className="text-blue-600 hover:text-blue-700"
               >
@@ -243,7 +264,7 @@ export default function DataEntryPage() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Use the provided template to ensure proper data format. 
+                Use the provided template to ensure proper data format.
                 Include columns: SampleID, ProjectID, District, City, Latitude, Longitude, Metal, Si, Ii, Mi, Date.
               </AlertDescription>
             </Alert>
@@ -272,7 +293,7 @@ export default function DataEntryPage() {
                   onChange={(e) => setNewSample(prev => ({ ...prev, sampleId: e.target.value }))}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="projectId">Project *</Label>
                 <Select
@@ -303,7 +324,7 @@ export default function DataEntryPage() {
                   onChange={(e) => setNewSample(prev => ({ ...prev, district: e.target.value }))}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="city">City *</Label>
                 <Input
@@ -325,7 +346,7 @@ export default function DataEntryPage() {
                   onChange={(e) => setNewSample(prev => ({ ...prev, latitude: e.target.value }))}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="longitude">Longitude *</Label>
                 <Input
@@ -366,7 +387,7 @@ export default function DataEntryPage() {
                   onChange={(e) => setNewSample(prev => ({ ...prev, Si: e.target.value }))}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="Ii">Ii *</Label>
                 <Input
@@ -376,7 +397,7 @@ export default function DataEntryPage() {
                   onChange={(e) => setNewSample(prev => ({ ...prev, Ii: e.target.value }))}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="Mi">Mi *</Label>
                 <Input
@@ -417,7 +438,7 @@ export default function DataEntryPage() {
                   Review and validate samples before saving ({uploadedData.length} sample{uploadedData.length > 1 ? 's' : ''})
                 </CardDescription>
               </div>
-              <Button onClick={handleSaveData} className="bg-green-600 hover:bg-green-700">
+              <Button onClick={handleSaveUploadedData} className="bg-green-600 hover:bg-green-700">
                 <CheckCircle className="h-4 w-4 mr-2" />
                 Save All Data
               </Button>
@@ -443,7 +464,7 @@ export default function DataEntryPage() {
                   {uploadedData.map((sample, index) => {
                     const errors = validateSample(sample);
                     const project = projects.find(p => p.id === sample.projectId);
-                    
+
                     return (
                       <tr key={index} className="border-b hover:bg-gray-50">
                         <td className="p-2 font-medium">{sample.sampleId}</td>

@@ -1,16 +1,16 @@
 'use client';
-import { useState } from 'react';
-import { projects, samples, calculateHMPI, getRiskLevel } from '@/utils/data';
+import { useState, useEffect } from 'react';
+import { projects as staticProjects, samples as staticSamples, calculateHMPI, getRiskLevel } from '@/utils/data';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   BarChart,
   Bar,
@@ -18,11 +18,32 @@ import {
   AreaChart
 } from 'recharts';
 import { TrendingUp, TrendingDown, BarChart3, Calendar } from 'lucide-react';
+import { fetchProjects, fetchSamples } from '@/utils/data';
 
 export default function TrendsPage() {
   const [selectedProject, setSelectedProject] = useState<string>('all');
   const [selectedMetal, setSelectedMetal] = useState<string>('all');
   const [timeFrame, setTimeFrame] = useState<string>('3months');
+  const [projects, setProjects] = useState(staticProjects);
+  const [samples, setSamples] = useState(staticSamples);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const fetchedProjects = await fetchProjects();
+        const fetchedSamples = await fetchSamples();
+        setProjects(fetchedProjects);
+        setSamples(fetchedSamples);
+      } catch (error) {
+        console.error("Failed to fetch trends data", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   // Process data for trends
   const processedSamples = samples.map(sample => ({
@@ -46,7 +67,7 @@ export default function TrendsPage() {
     .reduce((acc, sample) => {
       const month = sample.month;
       const existing = acc.find(item => item.month === month);
-      
+
       if (existing) {
         existing.hmpi = (existing.hmpi * existing.count + sample.hmpi) / (existing.count + 1);
         existing.count += 1;
@@ -58,7 +79,7 @@ export default function TrendsPage() {
           date: sample.date
         });
       }
-      
+
       return acc;
     }, [] as Array<{ month: string; hmpi: number; count: number; date: string }>);
 
@@ -66,7 +87,7 @@ export default function TrendsPage() {
   const districtData = filteredSamples.reduce((acc, sample) => {
     const district = sample.district;
     const existing = acc.find(item => item.district === district);
-    
+
     if (existing) {
       existing.avgHMPI = (existing.avgHMPI * existing.samples + sample.hmpi) / (existing.samples + 1);
       existing.samples += 1;
@@ -81,7 +102,7 @@ export default function TrendsPage() {
         highRisk: (sample.riskLevel.level === 'High Risk' || sample.riskLevel.level === 'Very High Risk') ? 1 : 0
       });
     }
-    
+
     return acc;
   }, [] as Array<{ district: string; avgHMPI: number; samples: number; highRisk: number }>)
   .sort((a, b) => b.avgHMPI - a.avgHMPI);
@@ -90,7 +111,7 @@ export default function TrendsPage() {
   const metalData = filteredSamples.reduce((acc, sample) => {
     const metal = sample.metal;
     const existing = acc.find(item => item.metal === metal);
-    
+
     if (existing) {
       existing.avgHMPI = (existing.avgHMPI * existing.samples + sample.hmpi) / (existing.samples + 1);
       existing.avgConcentration = (existing.avgConcentration * existing.samples + sample.Si) / (existing.samples + 1);
@@ -103,17 +124,17 @@ export default function TrendsPage() {
         samples: 1
       });
     }
-    
+
     return acc;
   }, [] as Array<{ metal: string; avgHMPI: number; avgConcentration: number; samples: number }>);
 
   // Calculate trend statistics
   const trendStats = {
     totalSamples: filteredSamples.length,
-    avgHMPI: filteredSamples.length > 0 
-      ? filteredSamples.reduce((sum, s) => sum + s.hmpi, 0) / filteredSamples.length 
+    avgHMPI: filteredSamples.length > 0
+      ? filteredSamples.reduce((sum, s) => sum + s.hmpi, 0) / filteredSamples.length
       : 0,
-    trend: timeSeriesData.length > 1 
+    trend: timeSeriesData.length > 1
       ? timeSeriesData[timeSeriesData.length - 1].hmpi - timeSeriesData[0].hmpi
       : 0,
     highRiskLocations: new Set(
@@ -125,6 +146,14 @@ export default function TrendsPage() {
 
   // Get unique metals for filter
   const uniqueMetals = [...new Set(samples.map(s => s.metal))];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -270,21 +299,21 @@ export default function TrendsPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis />
-                <Tooltip 
+                <Tooltip
                   formatter={(value: number) => [value.toFixed(2), 'Average HMPI']}
                   labelFormatter={(label) => `Month: ${label}`}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="hmpi" 
-                  stroke="#3B82F6" 
-                  fillOpacity={1} 
-                  fill="url(#hmpiGradient)" 
+                <Area
+                  type="monotone"
+                  dataKey="hmpi"
+                  stroke="#3B82F6"
+                  fillOpacity={1}
+                  fill="url(#hmpiGradient)"
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="hmpi" 
-                  stroke="#1E40AF" 
+                <Line
+                  type="monotone"
+                  dataKey="hmpi"
+                  stroke="#1E40AF"
                   strokeWidth={2}
                   dot={{ fill: '#1E40AF', strokeWidth: 2, r: 4 }}
                 />
@@ -315,7 +344,7 @@ export default function TrendsPage() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
                   <YAxis dataKey="district" type="category" width={100} />
-                  <Tooltip 
+                  <Tooltip
                     formatter={(value: number, name: string) => [
                       name === 'avgHMPI' ? value.toFixed(2) : value,
                       name === 'avgHMPI' ? 'Avg HMPI' : 'High Risk Samples'
@@ -346,7 +375,7 @@ export default function TrendsPage() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="metal" />
                   <YAxis />
-                  <Tooltip 
+                  <Tooltip
                     formatter={(value: number, name: string) => [
                       value.toFixed(3),
                       name === 'avgHMPI' ? 'Avg HMPI' : 'Avg Concentration (mg/L)'
@@ -391,7 +420,7 @@ export default function TrendsPage() {
                   {districtData.map((district, index) => {
                     const riskLevel = getRiskLevel(district.avgHMPI);
                     const riskPercent = (district.highRisk / district.samples) * 100;
-                    
+
                     return (
                       <tr key={district.district} className="border-b hover:bg-gray-50">
                         <td className="p-3 font-medium">{district.district}</td>
@@ -401,11 +430,11 @@ export default function TrendsPage() {
                           {district.highRisk}/{district.samples} ({riskPercent.toFixed(0)}%)
                         </td>
                         <td className="p-3">
-                          <Badge 
+                          <Badge
                             variant="outline"
-                            style={{ 
+                            style={{
                               borderColor: riskLevel.color,
-                              color: riskLevel.color 
+                              color: riskLevel.color
                             }}
                           >
                             {riskLevel.level}
@@ -427,7 +456,7 @@ export default function TrendsPage() {
               </table>
             </div>
           ) : (
-            <div className="text-center py-8">
+            <div className="text-center py-12">
               <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No detailed data available</h3>
               <p className="text-gray-500">Adjust your filters to see detailed trend analysis.</p>

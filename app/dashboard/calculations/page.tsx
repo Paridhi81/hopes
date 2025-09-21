@@ -1,27 +1,48 @@
 'use client';
-import { useState } from 'react';
-import { projects, samples, standards, calculateHMPI, getRiskLevel } from '@/utils/data';
+import { useState, useEffect } from 'react';
+import { projects as staticProjects, samples as staticSamples, standards, calculateHMPI, getRiskLevel } from '@/utils/data';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts';
 import { Calculator, AlertTriangle, CheckCircle, TrendingUp, FileText } from 'lucide-react';
+import { fetchProjects, fetchSamples } from '@/utils/data';
 
 export default function CalculationsPage() {
   const [selectedProject, setSelectedProject] = useState<string>('all');
   const [selectedMetal, setSelectedMetal] = useState<string>('all');
+  const [projects, setProjects] = useState(staticProjects);
+  const [samples, setSamples] = useState(staticSamples);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const fetchedProjects = await fetchProjects();
+        const fetchedSamples = await fetchSamples();
+        setProjects(fetchedProjects);
+        setSamples(fetchedSamples);
+      } catch (error) {
+        console.error("Failed to fetch data", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   // Filter samples based on selections
   const filteredSamples = samples.filter(sample => {
@@ -37,7 +58,7 @@ export default function CalculationsPage() {
     const whoStandard = standards.WHO[sample.metal as keyof typeof standards.WHO];
     const bbiStandard = standards.BBI[sample.metal as keyof typeof standards.BBI];
     const project = projects.find(p => p.id === sample.projectId);
-    
+
     return {
       ...sample,
       hmpi,
@@ -55,13 +76,13 @@ export default function CalculationsPage() {
   // Statistics
   const stats = {
     totalSamples: samplesWithCalculations.length,
-    averageHMPI: samplesWithCalculations.length > 0 
-      ? samplesWithCalculations.reduce((sum, s) => sum + s.hmpi, 0) / samplesWithCalculations.length 
+    averageHMPI: samplesWithCalculations.length > 0
+      ? samplesWithCalculations.reduce((sum, s) => sum + s.hmpi, 0) / samplesWithCalculations.length
       : 0,
     exceedsWHO: samplesWithCalculations.filter(s => s.exceedsWHO).length,
     exceedsBBI: samplesWithCalculations.filter(s => s.exceedsBBI).length,
     exceedsPolicy: samplesWithCalculations.filter(s => s.exceedsPolicy).length,
-    highRisk: samplesWithCalculations.filter(s => 
+    highRisk: samplesWithCalculations.filter(s =>
       s.riskLevel.level === 'High Risk' || s.riskLevel.level === 'Very High Risk'
     ).length
   };
@@ -95,7 +116,7 @@ export default function CalculationsPage() {
         sample.exceedsPolicy ? 'Yes' : 'No'
       ].join(','))
     ].join('\n');
-    
+
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -110,6 +131,14 @@ export default function CalculationsPage() {
   // Get unique metals for filter
   const uniqueMetals = [...new Set(samples.map(s => s.metal))];
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -118,7 +147,7 @@ export default function CalculationsPage() {
           <h1 className="text-3xl font-bold text-gray-900">HMPI Calculations</h1>
           <p className="text-gray-600">Heavy Metal Pollution Index analysis and standards comparison</p>
         </div>
-        
+
         <Button onClick={handleExportResults} disabled={samplesWithCalculations.length === 0}>
           <FileText className="h-4 w-4 mr-2" />
           Export Results
@@ -220,9 +249,9 @@ export default function CalculationsPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="sampleId" />
                 <YAxis />
-                <Tooltip 
+                <Tooltip
                   formatter={(value, name) => [
-                    typeof value === 'number' ? value.toFixed(2) : value, 
+                    typeof value === 'number' ? value.toFixed(2) : value,
                     name === 'hmpi' ? 'HMPI Value' : name
                   ]}
                 />
@@ -269,11 +298,11 @@ export default function CalculationsPage() {
                       <TableCell>{sample.Si.toFixed(3)}</TableCell>
                       <TableCell className="font-bold">{sample.hmpi.toFixed(2)}</TableCell>
                       <TableCell>
-                        <Badge 
-                          variant="outline" 
-                          style={{ 
+                        <Badge
+                          variant="outline"
+                          style={{
                             borderColor: sample.riskLevel.color,
-                            color: sample.riskLevel.color 
+                            color: sample.riskLevel.color
                           }}
                         >
                           {sample.riskLevel.level}
@@ -328,7 +357,7 @@ export default function CalculationsPage() {
               <Calculator className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No samples to calculate</h3>
               <p className="text-gray-500">
-                {selectedProject !== 'all' || selectedMetal !== 'all' 
+                {selectedProject !== 'all' || selectedMetal !== 'all'
                   ? 'Try adjusting your filters to see more results.'
                   : 'Add samples through the Data Entry page to see calculations here.'
                 }
@@ -357,7 +386,7 @@ export default function CalculationsPage() {
                 ))}
               </div>
             </div>
-            
+
             <div>
               <h4 className="font-medium mb-3">BBI Standards</h4>
               <div className="space-y-2">
@@ -385,7 +414,7 @@ export default function CalculationsPage() {
               <h4 className="font-medium mb-2">Formula:</h4>
               <p className="text-lg font-mono">HMPI = (Si / Ii) × Mi × 100</p>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-3 border rounded">
                 <h5 className="font-medium">Si</h5>
@@ -400,7 +429,7 @@ export default function CalculationsPage() {
                 <p className="text-sm text-gray-600">Relative weight of metal i</p>
               </div>
             </div>
-            
+
             <div className="bg-yellow-50 p-4 rounded-lg">
               <h4 className="font-medium mb-2">Risk Classification:</h4>
               <div className="space-y-1 text-sm">

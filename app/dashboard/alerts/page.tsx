@@ -1,21 +1,22 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { alerts, samples, projects, calculateHMPI, getRiskLevel } from '@/utils/data';
+import { alerts as staticAlerts, samples, projects, calculateHMPI, getRiskLevel } from '@/utils/data';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  AlertTriangle, 
-  CheckCircle, 
-  Clock, 
+import {
+  AlertTriangle,
+  CheckCircle,
+  Clock,
   Filter,
   Bell,
   XCircle,
   Info
 } from 'lucide-react';
+import { fetchAlerts, acknowledgeAlert } from '@/utils/data';
 
 interface AlertWithDetails {
   id: string;
@@ -32,7 +33,23 @@ interface AlertWithDetails {
 export default function AlertsPage() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<string>('all');
-  const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<string[]>([]);
+  const [alerts, setAlerts] = useState(staticAlerts);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadAlerts() {
+      setLoading(true);
+      try {
+        const fetchedAlerts = await fetchAlerts();
+        setAlerts(fetchedAlerts);
+      } catch (error) {
+        console.error("Failed to fetch alerts", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAlerts();
+  }, []);
 
   // Enhance alerts with project and sample details
   const alertsWithDetails: AlertWithDetails[] = alerts.map(alert => {
@@ -46,7 +63,6 @@ export default function AlertsPage() {
 
     return {
       ...alert,
-      acknowledged: acknowledgedAlerts.includes(alert.id) || alert.acknowledged,
       project,
       sample: enhancedSample
     };
@@ -79,24 +95,39 @@ export default function AlertsPage() {
     low: alertsWithDetails.filter(a => a.severity === 'low').length
   };
 
-  const handleAcknowledge = (alertId: string) => {
-    if (user?.role === 'researcher') {
-      return; // Researchers cannot acknowledge alerts
-    }
-    
-    setAcknowledgedAlerts(prev => [...prev, alertId]);
-  };
-
-  const handleAcknowledgeAll = () => {
+  const handleAcknowledge = async (alertId: string) => {
     if (user?.role === 'researcher') {
       return;
     }
 
-    const unacknowledgedIds = filteredAlerts
-      .filter(alert => !alert.acknowledged)
-      .map(alert => alert.id);
-    
-    setAcknowledgedAlerts(prev => [...prev, ...unacknowledgedIds]);
+    try {
+      await acknowledgeAlert(alertId);
+      // Re-fetch alerts to update the list
+      const fetchedAlerts = await fetchAlerts();
+      setAlerts(fetchedAlerts);
+    } catch (error) {
+      alert('Error acknowledging alert. Please try again.');
+    }
+  };
+
+  const handleAcknowledgeAll = async () => {
+    if (user?.role === 'researcher') {
+      return;
+    }
+
+    try {
+      const unacknowledgedIds = filteredAlerts
+        .filter(alert => !alert.acknowledged)
+        .map(alert => alert.id);
+
+      await Promise.all(unacknowledgedIds.map(id => acknowledgeAlert(id)));
+
+      // Re-fetch alerts to update the list
+      const fetchedAlerts = await fetchAlerts();
+      setAlerts(fetchedAlerts);
+    } catch (error) {
+      alert('Error acknowledging all alerts. Please try again.');
+    }
   };
 
   const getSeverityIcon = (severity: string) => {
@@ -127,6 +158,14 @@ export default function AlertsPage() {
 
   const canAcknowledge = user?.role !== 'researcher';
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -138,7 +177,7 @@ export default function AlertsPage() {
             {!canAcknowledge && ' (View-only access)'}
           </p>
         </div>
-        
+
         {canAcknowledge && filteredAlerts.some(a => !a.acknowledged) && (
           <Button onClick={handleAcknowledgeAll}>
             <CheckCircle className="h-4 w-4 mr-2" />
@@ -241,8 +280,8 @@ export default function AlertsPage() {
       <div className="space-y-4">
         {filteredAlerts.length > 0 ? (
           filteredAlerts.map((alert) => (
-            <Card 
-              key={alert.id} 
+            <Card
+              key={alert.id}
               className={`${getSeverityColor(alert.severity)} ${
                 alert.acknowledged ? 'opacity-75' : ''
               } transition-all hover:shadow-md`}
@@ -260,16 +299,16 @@ export default function AlertsPage() {
                       </CardDescription>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-2">
-                    <Badge 
-                      variant={alert.severity === 'high' ? 'destructive' : 
-                               alert.severity === 'medium' ? 'default' : 'outline'}
+                    <Badge
+                      variant={alert.severity === 'high' ? 'destructive' :
+                             alert.severity === 'medium' ? 'default' : 'outline'}
                       className="capitalize"
                     >
                       {alert.severity} Priority
                     </Badge>
-                    
+
                     {alert.acknowledged ? (
                       <Badge variant="outline" className="text-green-600">
                         <CheckCircle className="h-3 w-3 mr-1" />
@@ -284,10 +323,10 @@ export default function AlertsPage() {
                   </div>
                 </div>
               </CardHeader>
-              
+
               <CardContent>
                 <p className="text-gray-700 mb-4">{alert.message}</p>
-                
+
                 {alert.sample && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white bg-opacity-50 rounded-lg">
                     <div>
@@ -298,19 +337,19 @@ export default function AlertsPage() {
                         <div><strong>Location:</strong> {alert.sample.district}, {alert.sample.city}</div>
                       </div>
                     </div>
-                    
+
                     <div>
                       <h4 className="font-medium text-sm mb-2">Analysis Results</h4>
                       <div className="space-y-1 text-sm">
                         <div><strong>HMPI:</strong> {alert.sample.hmpi.toFixed(2)}</div>
                         <div>
                           <strong>Risk Level:</strong>
-                          <Badge 
-                            variant="outline" 
+                          <Badge
+                            variant="outline"
                             className="ml-1"
-                            style={{ 
+                            style={{
                               borderColor: alert.sample.riskLevel.color,
-                              color: alert.sample.riskLevel.color 
+                              color: alert.sample.riskLevel.color
                             }}
                           >
                             {alert.sample.riskLevel.level}
@@ -318,7 +357,7 @@ export default function AlertsPage() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div>
                       <h4 className="font-medium text-sm mb-2">Recommended Action</h4>
                       <div className="text-sm">
@@ -347,7 +386,7 @@ export default function AlertsPage() {
                     </div>
                   </div>
                 )}
-                
+
                 {canAcknowledge && !alert.acknowledged && (
                   <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
                     <Button
@@ -371,7 +410,7 @@ export default function AlertsPage() {
                 {filter === 'all' ? 'No alerts found' : `No ${filter} alerts`}
               </h3>
               <p className="text-gray-500">
-                {filter === 'all' 
+                {filter === 'all'
                   ? 'All water quality parameters are within acceptable limits.'
                   : 'Try adjusting your filter to see more alerts.'
                 }
@@ -402,7 +441,7 @@ export default function AlertsPage() {
                 <li>• Response time: Within 2 hours</li>
               </ul>
             </div>
-            
+
             <div className="p-4 border border-yellow-200 rounded-lg">
               <div className="flex items-center gap-2 mb-3">
                 <Info className="h-5 w-5 text-yellow-500" />
@@ -416,7 +455,7 @@ export default function AlertsPage() {
                 <li>• Response time: Within 24 hours</li>
               </ul>
             </div>
-            
+
             <div className="p-4 border border-blue-200 rounded-lg">
               <div className="flex items-center gap-2 mb-3">
                 <Bell className="h-5 w-5 text-blue-500" />

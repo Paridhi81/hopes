@@ -1,6 +1,7 @@
 'use client';
-import { useState } from 'react';
-import { projects, samples, alerts, calculateHMPI, getRiskLevel } from '@/utils/data';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { projects as staticProjects, samples, alerts, calculateHMPI, getRiskLevel } from '@/utils/data';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,16 +10,19 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { 
-  FolderOpen, 
-  Plus, 
-  MapPin, 
-  Calendar, 
-  TestTube, 
+import {
+  FolderOpen,
+  Plus,
+  MapPin,
+  Calendar,
+  TestTube,
   AlertTriangle,
   Eye,
-  BarChart3
+  BarChart3,
+  Save
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { fetchProjects, createProject } from '@/utils/data';
 
 interface NewProject {
   name: string;
@@ -28,8 +32,10 @@ interface NewProject {
 }
 
 export default function ProjectsPage() {
+  const { user } = useAuth();
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [projects, setProjects] = useState(staticProjects);
   const [newProject, setNewProject] = useState<NewProject>({
     name: '',
     description: '',
@@ -37,29 +43,43 @@ export default function ProjectsPage() {
     city: ''
   });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Filter projects based on search term
-  const filteredProjects = projects.filter(project =>
-    project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    project.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    project.district.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  useEffect(() => {
+    async function loadProjects() {
+      setLoading(true);
+      try {
+        const fetchedProjects = await fetchProjects();
+        setProjects(fetchedProjects);
+      } catch (error) {
+        console.error("Failed to fetch projects", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadProjects();
+  }, []);
 
-  const handleCreateProject = () => {
-    // In real app, this would make an API call
-    console.log('Creating project:', newProject);
-    setNewProject({ name: '', description: '', district: '', city: '' });
-    setIsDialogOpen(false);
-    // Show success message
+  const handleCreateProject = async () => {
+    try {
+      await createProject(newProject);
+      setNewProject({ name: '', description: '', district: '', city: '' });
+      setIsDialogOpen(false);
+      // Re-fetch projects to update the list
+      const fetchedProjects = await fetchProjects();
+      setProjects(fetchedProjects);
+    } catch (error) {
+      alert('Error creating project. Please try again.');
+    }
   };
 
   const getProjectStats = (projectId: string) => {
     const projectSamples = samples.filter(s => s.projectId === projectId);
     const projectAlerts = alerts.filter(a => a.projectId === projectId && !a.acknowledged);
-    const avgHMPI = projectSamples.length > 0 
-      ? projectSamples.reduce((sum, s) => sum + calculateHMPI(s), 0) / projectSamples.length 
+    const avgHMPI = projectSamples.length > 0
+      ? projectSamples.reduce((sum, s) => sum + calculateHMPI(s), 0) / projectSamples.length
       : 0;
-    
+
     const riskLevels = projectSamples.map(s => getRiskLevel(calculateHMPI(s)).level);
     const highRiskCount = riskLevels.filter(level => level === 'High Risk' || level === 'Very High Risk').length;
 
@@ -71,6 +91,20 @@ export default function ProjectsPage() {
     };
   };
 
+  const filteredProjects = projects.filter(project =>
+    project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    project.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    project.district.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -79,79 +113,82 @@ export default function ProjectsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Projects</h1>
           <p className="text-gray-600">Manage water quality monitoring projects</p>
         </div>
-        
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700">
-              <Plus className="h-4 w-4 mr-2" />
-              New Project
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Create New Project</DialogTitle>
-              <DialogDescription>
-                Add a new water quality monitoring project
-              </DialogDescription>
-            </DialogHeader>
-            
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="project-name">Project Name</Label>
-                <Input
-                  id="project-name"
-                  placeholder="e.g., Krishna River Study - Vijayawada"
-                  value={newProject.name}
-                  onChange={(e) => setNewProject(prev => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="project-description">Description</Label>
-                <Textarea
-                  id="project-description"
-                  placeholder="Brief description of the project objectives"
-                  value={newProject.description}
-                  onChange={(e) => setNewProject(prev => ({ ...prev, description: e.target.value }))}
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
+
+        {user?.role !== 'researcher' && (
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-blue-600 hover:bg-blue-700">
+                <Plus className="h-4 w-4 mr-2" />
+                New Project
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create New Project</DialogTitle>
+                <DialogDescription>
+                  Add a new water quality monitoring project
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="district">District</Label>
+                  <Label htmlFor="project-name">Project Name</Label>
                   <Input
-                    id="district"
-                    placeholder="District name"
-                    value={newProject.district}
-                    onChange={(e) => setNewProject(prev => ({ ...prev, district: e.target.value }))}
+                    id="project-name"
+                    placeholder="e.g., Krishna River Study - Vijayawada"
+                    value={newProject.name}
+                    onChange={(e) => setNewProject(prev => ({ ...prev, name: e.target.value }))}
                   />
                 </div>
-                
+
                 <div className="space-y-2">
-                  <Label htmlFor="city">City/State</Label>
-                  <Input
-                    id="city"
-                    placeholder="City or State"
-                    value={newProject.city}
-                    onChange={(e) => setNewProject(prev => ({ ...prev, city: e.target.value }))}
+                  <Label htmlFor="project-description">Description</Label>
+                  <Textarea
+                    id="project-description"
+                    placeholder="Brief description of the project objectives"
+                    value={newProject.description}
+                    onChange={(e) => setNewProject(prev => ({ ...prev, description: e.target.value }))}
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="district">District</Label>
+                    <Input
+                      id="district"
+                      placeholder="District name"
+                      value={newProject.district}
+                      onChange={(e) => setNewProject(prev => ({ ...prev, district: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City/State</Label>
+                    <Input
+                      id="city"
+                      placeholder="City or State"
+                      value={newProject.city}
+                      onChange={(e) => setNewProject(prev => ({ ...prev, city: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCreateProject}
+                    disabled={!newProject.name || !newProject.district || !newProject.city}
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Create Project
+                  </Button>
+                </div>
               </div>
-              
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleCreateProject}
-                  disabled={!newProject.name || !newProject.district || !newProject.city}
-                >
-                  Create Project
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Search and Filter */}
@@ -179,7 +216,7 @@ export default function ProjectsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredProjects.map((project) => {
           const stats = getProjectStats(project.id);
-          
+
           return (
             <Card key={project.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
@@ -194,10 +231,10 @@ export default function ProjectsPage() {
                   <FolderOpen className="h-5 w-5 text-blue-600 flex-shrink-0 ml-2" />
                 </div>
               </CardHeader>
-              
+
               <CardContent className="space-y-4">
                 <p className="text-sm text-gray-600 line-clamp-2">{project.description}</p>
-                
+
                 {/* Project Stats */}
                 <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg">
                   <div className="text-center">
@@ -238,11 +275,11 @@ export default function ProjectsPage() {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 pt-2">
-                  <Button variant="outline" size="sm" className="flex-1">
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => router.push(`/dashboard/projects/${project.id}`)}>
                     <Eye className="h-3 w-3 mr-1" />
                     View Details
                   </Button>
-                  <Button variant="outline" size="sm" className="flex-1">
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => router.push(`/dashboard/projects/${project.id}/analytics`)}>
                     <BarChart3 className="h-3 w-3 mr-1" />
                     Analytics
                   </Button>

@@ -1,16 +1,17 @@
 'use client';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { projects, samples, alerts, calculateHMPI, getRiskLevel } from '@/utils/data';
+import { projects as staticProjects, samples as staticSamples, alerts as staticAlerts, calculateHMPI, getRiskLevel } from '@/utils/data';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -24,15 +25,47 @@ import {
   MapPin,
   Activity
 } from 'lucide-react';
+import { fetchProjects, fetchSamples, fetchAlerts } from '@/utils/data';
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const [projects, setProjects] = useState(staticProjects);
+  const [samples, setSamples] = useState(staticSamples);
+  const [alerts, setAlerts] = useState(staticAlerts);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const fetchedProjects = await fetchProjects();
+        const fetchedSamples = await fetchSamples();
+        const fetchedAlerts = await fetchAlerts();
+        setProjects(fetchedProjects);
+        setSamples(fetchedSamples);
+        setAlerts(fetchedAlerts);
+      } catch (error) {
+        console.error("Failed to fetch dashboard data", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   // Calculate statistics
   const totalProjects = projects.length;
   const totalSamples = samples.length;
   const totalAlerts = alerts.filter(a => !a.acknowledged).length;
-  
+
   // Calculate HMPI for all samples
   const samplesWithHMPI = samples.map(sample => ({
     ...sample,
@@ -218,8 +251,8 @@ export default function DashboardPage() {
             {projects.slice(0, 4).map((project) => {
               const projectSamples = samples.filter(s => s.projectId === project.id);
               const projectAlerts = alerts.filter(a => a.projectId === project.id && !a.acknowledged);
-              const avgHMPI = projectSamples.length > 0 
-                ? projectSamples.reduce((sum, s) => sum + calculateHMPI(s), 0) / projectSamples.length 
+              const avgHMPI = projectSamples.length > 0
+                ? projectSamples.reduce((sum, s) => sum + calculateHMPI(s), 0) / projectSamples.length
                 : 0;
 
               return (
